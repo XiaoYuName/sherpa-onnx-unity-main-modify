@@ -18,9 +18,9 @@ public class SpeakerIdentification : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        pathRoot = Util.GetPath();
+        pathRoot = Util.GetPath() + "/models";
+        //modelPath = pathRoot + "/3dspeaker_speech_eres2net_base_200k_sv_zh-cn_16k-common.onnx";
         modelPath = pathRoot + "/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx";
-
     }
 
     public void Init()
@@ -52,7 +52,7 @@ public class SpeakerIdentification : MonoBehaviour
 
         var spk1Files =
             new string[] {
-          pathRoot+"/xuefei1.wav",
+          pathRoot+"/audio/xuefei1.wav",
             };
         var spk1Vec = new float[spk1Files.Length][];
 
@@ -85,9 +85,9 @@ public class SpeakerIdentification : MonoBehaviour
         //验证测试
         testFiles =
         new string[] {
-          pathRoot+"/test1.wav",
-          pathRoot+"/test2.wav",
-          pathRoot+"/test3.wav",
+          pathRoot+"/audio/test1.wav",
+          pathRoot+"/audio/test2.wav",
+          pathRoot+"/audio/test3.wav",
         };
         float threshold = 0.6f;
         foreach (var file in testFiles)
@@ -99,7 +99,7 @@ public class SpeakerIdentification : MonoBehaviour
                 name = "<Unknown>";
             }
             Debug.Log(file + " :" + name);
-        } 
+        }
     }
 
     /// <summary>
@@ -113,23 +113,30 @@ public class SpeakerIdentification : MonoBehaviour
 
     float threshold = 0.6f;
 
-    public void Search()
-    { 
-        string filePath = pathRoot + "/" + DateTime.Now.ToFileTime().ToString() + ".wav";
-        //DenoisedAudio denoisedAudio = offlineSpeechDenoiser.Run(audioData.ToArray(), 16000); 
-        //if (denoisedAudio.SaveToWaveFile(filePath))
-        //{
-
-        //}
-        Util.SaveClip(1, 16000, audioData.ToArray(), filePath);
-        var embedding = ComputeEmbedding(extractor, filePath);
-        string name = manager.Search(embedding, threshold);
-        if (name == "")
+    public void Search(Action<string> callback)
+    {
+        Loom.RunAsync(() =>
         {
-            name = "<Unknown>";
-        }
-        Debug.Log("name:" + name);
-        audioData.Clear();
+            string filePath = pathRoot + "/" + DateTime.Now.ToFileTime().ToString() + ".wav";
+            DenoisedAudio denoisedAudio = offlineSpeechDenoiser.Run(audioData.ToArray(), 16000);
+            if (denoisedAudio.SaveToWaveFile(filePath))
+            {
+
+            }
+            Util.SaveClip(1, 16000, audioData.ToArray(), filePath);
+            var embedding = ComputeEmbedding(extractor, filePath);
+            string name = manager.Search(embedding, threshold);
+            if (name == "")
+            {
+                name = "<Unknown>";
+            } 
+            audioData.Clear();
+            Loom.QueueOnMainThread(() =>
+            {
+                Debug.Log("name:" + name);
+                callback?.Invoke(name);
+            });
+        });
     }
 
     public float[] ComputeEmbedding(SpeakerEmbeddingExtractor extractor, string filename)

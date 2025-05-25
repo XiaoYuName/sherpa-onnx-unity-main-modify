@@ -1,5 +1,4 @@
 using SherpaOnnx;
-using System.Collections.Generic;
 using System.IO;
 using uMicrophoneWebGL;
 using UnityEngine;
@@ -18,13 +17,11 @@ public class SampleOnlineRecognizer : MonoBehaviour
     string joiner = "joiner-epoch-99-avg-1.onnx";
     int numThreads = 1;
     string decodingMethod = "modified_beam_search";
-
+    string bpe = "bpe.vocab";
     string pathRoot;
     string modelPath;
     int sampleRate = 16000;
 
-    //OfflinePunctuation offlinePunctuation = null;
-    VoiceActivityDetector vad = null;
     MicrophoneWebGL microphone;
     public bool initDone = false;
 
@@ -36,7 +33,7 @@ public class SampleOnlineRecognizer : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        pathRoot = Util.GetPath();
+        pathRoot = Util.GetPath() + "/models";
         microphone = GetComponent<MicrophoneWebGL>();
         //microphone.dataEvent = new DataEvent();
         microphone.dataEvent.AddListener(OnAudioData);
@@ -61,6 +58,10 @@ public class SampleOnlineRecognizer : MonoBehaviour
         config.ModelConfig.Transducer.Decoder = Path.Combine(modelPath, decoder);
         config.ModelConfig.Transducer.Joiner = Path.Combine(modelPath, joiner);
         config.ModelConfig.Tokens = Path.Combine(modelPath, tokensPath);
+        config.ModelConfig.BpeVocab = Path.Combine(modelPath, bpe);
+        config.ModelConfig.ModelingUnit = "cjkchar";
+        config.HotwordsFile = Path.Combine(modelPath, "hotwords_cn.txt");
+        config.HotwordsScore = 2.0f;
         config.ModelConfig.Debug = 0;
         config.DecodingMethod = decodingMethod;
         config.EnableEndpoint = 1;
@@ -82,29 +83,11 @@ public class SampleOnlineRecognizer : MonoBehaviour
         //offlinePunctuation = new OfflinePunctuation(opc);
         #endregion
 
-        #region vad
-        VadModelConfig vadModelConfig = new VadModelConfig();
-
-        SileroVadModelConfig SileroVad = new SileroVadModelConfig();
-        SileroVad.Model = pathRoot + "/silero_vad.onnx";
-        SileroVad.MinSilenceDuration = 0.25f;
-        SileroVad.MinSpeechDuration = 0.5f;
-        SileroVad.Threshold = 0.5f;
-        SileroVad.WindowSize = 512;
-
-        vadModelConfig.SileroVad = SileroVad;
-        vadModelConfig.SampleRate = sampleRate;
-        vadModelConfig.NumThreads = numThreads;
-        vadModelConfig.Provider = "cpu";
-        vadModelConfig.Debug = 0;
-
-        vad = new VoiceActivityDetector(vadModelConfig, 60);
-
         if (keyword != null)
         {
             keyword.Init();
         }
-        if(speakerIdentification!=null)
+        if (speakerIdentification != null)
         {
             speakerIdentification.Init();
         }
@@ -114,9 +97,8 @@ public class SampleOnlineRecognizer : MonoBehaviour
             Debug.Log("语音转文字初始化完成");
             inputField.text = "init done \n";
         });
-        #endregion
     }
-     
+
     public void OnAudioData(float[] data)
     {
         if (!initDone)
@@ -136,56 +118,67 @@ public class SampleOnlineRecognizer : MonoBehaviour
         onlineStream.AcceptWaveform(sampleRate, data);
     }
 
+    private float nextCallTime = 0f;
+    private float interval = 0.01f;
     string lastText = "";
     // Update is called once per frame
     void Update()
     {
-        if (initDone)
-        { 
-            // 每帧更新识别器状态
-            if (recognizer.IsReady(onlineStream))
-            {
-                recognizer.Decode(onlineStream);
-            }
-
-            var text = recognizer.GetResult(onlineStream).Text;
-            bool isEndpoint = recognizer.IsEndpoint(onlineStream);
-            if (!string.IsNullOrWhiteSpace(text) && lastText != text)
-            {
-                if (string.IsNullOrWhiteSpace(lastText))
-                {
-                    lastText = text;
-                    Debug.Log(lastText.ToLower());
-                }
-                else
-                {
-
-                    Debug.Log(text.Replace(lastText, "").ToLower());
-                    lastText = text;
-                    inputField.text += lastText + "\n";
-                }
-            }
-
-            if (isEndpoint)
-            {
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    if (keyword != null)
-                    {
-                        keyword.Recognize();
-                    }
-
-                    if (speakerIdentification != null)
-                    {
-                        speakerIdentification.Search();
-                    }
-                    Debug.Log(text.ToLower());
-                    //Debug.Log(offlinePunctuation.AddPunct(text.ToLower()));
-                    inputField.text = text.ToLower() + "\n";
-                }
-                recognizer.Reset(onlineStream);
-            } 
+        if (!initDone)
+        {
+            return;
         }
+
+        //if (Time.time >= nextCallTime)
+        //{
+        // 每帧更新识别器状态
+        if (recognizer.IsReady(onlineStream))
+        {
+            recognizer.Decode(onlineStream);
+        }
+
+        var text = recognizer.GetResult(onlineStream).Text;
+        bool isEndpoint = recognizer.IsEndpoint(onlineStream);
+        if (!string.IsNullOrWhiteSpace(text) && lastText != text)
+        {
+            if (string.IsNullOrWhiteSpace(lastText))
+            {
+                lastText = text;
+                Debug.Log(lastText.ToLower());
+            }
+            else
+            {
+
+                Debug.Log(text.Replace(lastText, "").ToLower());
+                lastText = text;
+                inputField.text += lastText + "\n";
+            }
+        }
+
+        if (isEndpoint)
+        {
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                if (keyword != null)
+                {
+                    keyword.Recognize();
+                }
+
+                if (speakerIdentification != null)
+                {
+                    speakerIdentification.Search((name) =>
+                    {
+                        inputField.text += "speaker: " + name + "\n";
+                    });
+                }
+                Debug.Log(text.ToLower());
+                //Debug.Log(offlinePunctuation.AddPunct(text.ToLower()));
+                inputField.text = text.ToLower() + "\n";
+            }
+            recognizer.Reset(onlineStream);
+        }
+        //    nextCallTime = Time.time + interval;
+        //}
     }
 
     private void OnApplicationQuit()
@@ -198,14 +191,6 @@ public class SampleOnlineRecognizer : MonoBehaviour
         if (onlineStream != null)
         {
             onlineStream.Dispose();
-        }
-        //if (offlinePunctuation != null)
-        //{
-        //    offlinePunctuation.Dispose();
-        //}
-        if (vad != null)
-        {
-            vad.Dispose();
         }
     }
 }
