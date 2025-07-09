@@ -11,7 +11,6 @@ using System.Collections.Generic;
 public class SampleOfflineRecognizer : MonoBehaviour
 {
     public Button button;
-    public InputField inputField;
 
     OfflineRecognizer recognizer = null;
     OfflineStream offlineStream = null;
@@ -32,6 +31,8 @@ public class SampleOfflineRecognizer : MonoBehaviour
 
     bool isDone = false;
     List<float> buffer = new List<float>();
+    
+    public UnityEvent<string> OnResult;
 
     // Start is called before the first frame update
     void Start()
@@ -159,7 +160,8 @@ public class SampleOfflineRecognizer : MonoBehaviour
         recognizer.Decode(offlineStream);
         string result = offlineStream.Result.Text;
         offlineStream.Dispose();
-        inputField.text = offlinePunctuation.AddPunct(result.ToLower());
-        Debug.Log("识别结果:" + result);
+        string punctResult = offlinePunctuation.AddPunct(result.ToLower());
+        Debug.Log("识别结果:" + punctResult);
+        OnResult?.Invoke(punctResult);
     }
 }
